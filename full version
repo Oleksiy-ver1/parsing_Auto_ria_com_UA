@@ -1,0 +1,89 @@
+import requests
+from bs4 import BeautifulSoup # из bs4 вытаскиваем BeautifulSoup
+import csv #Comma Separated Values – переменные, разделенные запятыми
+import os
+
+
+URL="https://auto.ria.com/newauto/marka-nissan/" # адрес который будем парсить
+HEADERS={'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.132 Safari/537.36', "accept":"*/*"}
+#заголовки нужны чтоб сайт воспринемал нас как браузер, а не как бот
+HOST ="https://auto.ria.com"
+FILE = "cars.csv"
+
+# params - переменная для передачи дополнительных параметров (номера страниц например)
+s=0
+def get_html(url, params=None):
+    r=requests.get(url, headers=HEADERS, params=params)
+    return r
+
+def get_pages_count(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    pagenation=soup.findAll('span', class_='page-item mhide')
+    if pagenation:
+        return int(pagenation[-1].get_text())
+    else:
+        return 1
+
+
+def get_usd(item):
+    s = item.find('div', {'class': 'proposition_price'}).get_text(strip=True).index('$') - 2
+    usd = item.find('div', {'class': 'proposition_price'}).get_text(strip=True).replace(' ','')[0:s]
+    if usd.isdigit():
+        usd=int(usd)
+    else:
+        usd="уточняйте цену"
+
+    return usd
+
+
+def get_uah(item):
+    s1 = item.find('div', {'class': 'proposition_price'}).get_text(strip=True).index('$') +1
+    s2 = item.find('div', {'class': 'proposition_price'}).get_text(strip=True).index('грн')
+    uah =item.find('div', {'class': 'proposition_price'}).get_text(strip=True)[s1:s2].replace(' ','').replace('•','')
+    if  uah.isdigit():
+        uah=int(uah)
+    else:
+        uah='уточняйте цену'
+    return uah
+
+
+def get_content(html):
+    soup=BeautifulSoup(html, 'html.parser') # 'html.parser' - параметр указывающий, что разбераем html-формат
+    # items=soup.findAll("h3", {"class": "proposition_name"})
+    items=soup.findAll("div", {"class": "proposition_area"})
+    cars=[] #создаем словарь с автомобилями
+    for item in items:
+        cars.append({
+            # 'title': item.text.strip(' ')
+            'title': item.find('h3', class_='proposition_name').get_text(strip=True),
+            'link': HOST+item.find('a').get('href'),
+            'price_usd':get_usd(item),
+            'price_uah':get_uah(item),
+            'city': item.find('svg', class_='svg svg-i16_pin').find_next('strong').get_text(strip=True),
+        })
+    return cars
+
+def save_file(items, path):
+    with open(path, 'w', newline='') as file:
+        w=csv.writer(file, delimiter=';')
+        w.writerow(['марка', 'ссылка','цена доллар','цена гривна','город'])
+        for item in items:
+            w.writerow([item['title'], item['link'], item['price_usd'], item['price_uah'], item['city']])
+
+def parse():
+    html=get_html(URL)
+    if html.status_code== 200:
+        cars=[]
+        pages_count= get_pages_count(html.text)
+        for page in range (1, pages_count+1):
+            print(f'Парсинг страницы {page} из {pages_count}....')
+            html = get_html(URL,params={'page':page})
+            cars.extend(get_content(html.text)) #дополняем словарь данными с каждой новой страницы
+        print (f'получены данные про {len(cars)} автомобилей')
+        save_file(cars, FILE)
+        os.startfile(FILE)
+    else:
+        print ('ERROR')
+
+
+parse()
